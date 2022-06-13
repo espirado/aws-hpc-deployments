@@ -13,3 +13,9 @@ For a full list of software, including build and usage instructions, see the [us
 ![Work Design](Images/hpcd.png)
 
 
+# Running Workflows in the cloud
+
+Icipe allows users to run their workloads on AWS cloud 
+
+# Templates and documentation 
+ [running parallel cluster](https://link-url-here.org)
