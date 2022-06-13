@@ -1,0 +1,1843 @@
+Outputs:
+  ClusterHostedZone:
+    Description: Id of the private hosted zone created within the cluster
+    Value: !Ref Route53HostedZone
+  EBSIds:
+    Description: EBS Filesystem IDs
+    Value: !Ref EBS0
+  EFSIds:
+    Description: EFS Filesystem IDs
+    Value: ''
+  FSXIds:
+    Description: FSX Filesystem IDs
+    Value: ''
+  HeadNodeInstanceID:
+    Description: ID of the head node instance
+    Value: !Ref HeadNode
+  HeadNodePrivateDnsName:
+    Description: Private DNS name of the head node
+    Value: !GetAtt 
+      - HeadNode
+      - PrivateDnsName
+  HeadNodePrivateIP:
+    Description: Private IP Address of the head node
+    Value: !GetAtt 
+      - HeadNode
+      - PrivateIp
+  RAIDIds:
+    Description: RAID Filesystem IDs
+    Value: ''
+Parameters:
+  ArtifactS3RootDirectory:
+    Default: parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3
+    Description: Root directory in S3 bucket where cluster artifacts are stored
+    Type: String
+  ClusterCWLogGroup:
+    Default: /aws/parallelcluster/hpc-202206131034
+    Description: CloudWatch Log Group associated to the cluster
+    Type: String
+  ClusterDNSDomain:
+    Default: hpc.pcluster.
+    Description: DNS Domain of the private hosted zone created within the cluster
+    Type: String
+  ClusterUser:
+    Default: ec2-user
+    Description: Username to login to head node
+    Type: String
+  ConfigVersion:
+    Default: yL3anvCKxtX45hgOjwngcYy6cMHQHTM8
+    Description: Version of the original config used to generate the stack
+    Type: String
+  ResourcesS3Bucket:
+    Default: parallelcluster-a236158d1d66ed84-v1-do-not-delete
+    Description: S3 user bucket where AWS ParallelCluster resources are stored
+    Type: String
+  Scheduler:
+    Default: slurm
+    Type: String
+Resources:
+  CleanupResourcesFunction:
+    Properties:
+      Code:
+        S3Bucket: parallelcluster-a236158d1d66ed84-v1-do-not-delete
+        S3Key: >-
+          parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3/custom_resources/artifacts.zip
+      FunctionName: !Join 
+        - ''
+        - - pcluster-CleanupResources-
+          - !Select 
+            - 2
+            - !Split 
+              - /
+              - !Ref 'AWS::StackId'
+      Handler: cleanup_resources.handler
+      MemorySize: 128
+      Role: !GetAtt 
+        - CleanupResourcesFunctionExecutionRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 900
+    Type: 'AWS::Lambda::Function'
+  CleanupResourcesFunctionExecutionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: 2012-10-17
+      Path: /parallelcluster/
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - 's3:DeleteObject'
+                  - 's3:DeleteObjectVersion'
+                  - 's3:ListBucket'
+                  - 's3:ListBucketVersions'
+                Effect: Allow
+                Resource:
+                  - !Join 
+                    - ''
+                    - - 'arn:'
+                      - !Ref 'AWS::Partition'
+                      - ':s3:::parallelcluster-a236158d1d66ed84-v1-do-not-delete'
+                  - !Join 
+                    - ''
+                    - - 'arn:'
+                      - !Ref 'AWS::Partition'
+                      - >-
+                        :s3:::parallelcluster-a236158d1d66ed84-v1-do-not-delete/parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3/*
+                Sid: S3BucketPolicy
+              - Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Effect: Allow
+                Resource: !Join 
+                  - ''
+                  - - 'arn:'
+                    - !Ref 'AWS::Partition'
+                    - ':logs:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+                    - ':log-group:/aws/lambda/pcluster-CleanupResources-*'
+                Sid: CloudWatchLogsPolicy
+              - Action: 'ec2:DescribeInstances'
+                Effect: Allow
+                Resource: '*'
+                Sid: DescribeInstances
+              - Action: 'ec2:TerminateInstances'
+                Condition:
+                  StringEquals:
+                    'ec2:ResourceTag/parallelcluster:cluster-name': hpc
+                Effect: Allow
+                Resource: '*'
+                Sid: FleetTerminatePolicy
+            Version: 2012-10-17
+          PolicyName: LambdaPolicy
+    Type: 'AWS::IAM::Role'
+  CleanupResourcesFunctionLogGroup:
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Join 
+        - ''
+        - - /aws/lambda/pcluster-CleanupResources-
+          - !Select 
+            - 2
+            - !Split 
+              - /
+              - !Ref 'AWS::StackId'
+      RetentionInDays: 14
+    Type: 'AWS::Logs::LogGroup'
+  CleanupResourcesS3BucketCustomResource:
+    DeletionPolicy: Delete
+    Properties:
+      Action: DELETE_S3_ARTIFACTS
+      ArtifactS3RootDirectory: parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3
+      ResourcesS3Bucket: parallelcluster-a236158d1d66ed84-v1-do-not-delete
+      ServiceToken: !GetAtt 
+        - CleanupResourcesFunction
+        - Arn
+    Type: 'AWS::CloudFormation::CustomResource'
+    UpdateReplacePolicy: Delete
+  CleanupRoute53CustomResource:
+    Properties:
+      Action: DELETE_DNS_RECORDS
+      ClusterDNSDomain: !Ref ClusterDNSDomain
+      ClusterHostedZone: !Ref Route53HostedZone
+      ServiceToken: !GetAtt 
+        - CleanupRoute53Function
+        - Arn
+    Type: 'AWS::CloudFormation::CustomResource'
+  CleanupRoute53Function:
+    Properties:
+      Code:
+        S3Bucket: parallelcluster-a236158d1d66ed84-v1-do-not-delete
+        S3Key: >-
+          parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3/custom_resources/artifacts.zip
+      FunctionName: !Join 
+        - ''
+        - - pcluster-CleanupRoute53-
+          - !Select 
+            - 2
+            - !Split 
+              - /
+              - !Ref 'AWS::StackId'
+      Handler: cleanup_resources.handler
+      MemorySize: 128
+      Role: !GetAtt 
+        - CleanupRoute53FunctionExecutionRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 900
+    Type: 'AWS::Lambda::Function'
+  CleanupRoute53FunctionExecutionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: 2012-10-17
+      Path: /parallelcluster/
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - 'route53:ListResourceRecordSets'
+                  - 'route53:ChangeResourceRecordSets'
+                Effect: Allow
+                Resource: !Join 
+                  - ''
+                  - - 'arn:'
+                    - !Ref 'AWS::Partition'
+                    - ':route53:::hostedzone/'
+                    - !Ref Route53HostedZone
+                Sid: Route53DeletePolicy
+              - Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Effect: Allow
+                Resource: !Join 
+                  - ''
+                  - - 'arn:'
+                    - !Ref 'AWS::Partition'
+                    - ':logs:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+                    - ':log-group:/aws/lambda/pcluster-CleanupRoute53-*'
+                Sid: CloudWatchLogsPolicy
+            Version: 2012-10-17
+          PolicyName: LambdaPolicy
+    Type: 'AWS::IAM::Role'
+  CleanupRoute53FunctionLogGroup:
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Join 
+        - ''
+        - - /aws/lambda/pcluster-CleanupRoute53-
+          - !Select 
+            - 2
+            - !Split 
+              - /
+              - !Ref 'AWS::StackId'
+      RetentionInDays: 14
+    Type: 'AWS::Logs::LogGroup'
+  CloudWatchLogGroup:
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: /aws/parallelcluster/hpc-202206131034
+      RetentionInDays: 14
+    Type: 'AWS::Logs::LogGroup'
+  CloudwatchDashboard88785441:
+    Properties:
+      DashboardBody: !Join 
+        - ''
+        - - >-
+            {"widgets":[{"type":"text","width":24,"height":1,"x":0,"y":0,"properties":{"markdown":"\n#
+            Head Node EC2
+            Metrics\n"}},{"type":"text","width":24,"height":1,"x":0,"y":1,"properties":{"markdown":"\n##
+            Head Node Instance
+            Metrics\n"}},{"type":"metric","width":6,"height":6,"x":0,"y":2,"properties":{"view":"timeSeries","title":"CPU
+            Utilization","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EC2","CPUUtilization","InstanceId","'
+          - !Ref HeadNode
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":6,"y":2,"properties":{"view":"timeSeries","title":"Network
+            Packets In/Out","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EC2","NetworkPacketsIn","InstanceId","'
+          - !Ref HeadNode
+          - '"],["AWS/EC2","NetworkPacketsOut","InstanceId","'
+          - !Ref HeadNode
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":12,"y":2,"properties":{"view":"timeSeries","title":"Network
+            In and Out","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EC2","NetworkIn","InstanceId","'
+          - !Ref HeadNode
+          - '"],["AWS/EC2","NetworkOut","InstanceId","'
+          - !Ref HeadNode
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":18,"y":2,"properties":{"view":"timeSeries","title":"Disk
+            Read/Write Bytes","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EC2","DiskReadBytes","InstanceId","'
+          - !Ref HeadNode
+          - '"],["AWS/EC2","DiskWriteBytes","InstanceId","'
+          - !Ref HeadNode
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":0,"y":8,"properties":{"view":"timeSeries","title":"Disk
+            Read/Write Ops","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EC2","DiskReadOps","InstanceId","'
+          - !Ref HeadNode
+          - '"],["AWS/EC2","DiskWriteOps","InstanceId","'
+          - !Ref HeadNode
+          - >-
+            "]],"yAxis":{}}},{"type":"text","width":24,"height":1,"x":0,"y":14,"properties":{"markdown":"\n##
+            EBS
+            Metrics\n"}},{"type":"metric","width":6,"height":6,"x":0,"y":15,"properties":{"view":"timeSeries","title":"Read/Write
+            Ops","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EBS","VolumeReadOps","VolumeId","'
+          - !Ref EBS0
+          - '"],["AWS/EBS","VolumeWriteOps","VolumeId","'
+          - !Ref EBS0
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":6,"y":15,"properties":{"view":"timeSeries","title":"Read/Write
+            Bytes","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EBS","VolumeReadBytes","VolumeId","'
+          - !Ref EBS0
+          - '"],["AWS/EBS","VolumeWriteBytes","VolumeId","'
+          - !Ref EBS0
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":12,"y":15,"properties":{"view":"timeSeries","title":"Total
+            Read/Write Time","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EBS","VolumeTotalReadTime","VolumeId","'
+          - !Ref EBS0
+          - '"],["AWS/EBS","VolumeTotalWriteTime","VolumeId","'
+          - !Ref EBS0
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":18,"y":15,"properties":{"view":"timeSeries","title":"Queue
+            Length","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EBS","VolumeQueueLength","VolumeId","'
+          - !Ref EBS0
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":0,"y":21,"properties":{"view":"timeSeries","title":"Idle
+            Time","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EBS","VolumeIdleTime","VolumeId","'
+          - !Ref EBS0
+          - >-
+            "]],"yAxis":{}}},{"type":"metric","width":6,"height":6,"x":6,"y":21,"properties":{"view":"timeSeries","title":"Burst
+            Balance","region":"
+          - !Ref 'AWS::Region'
+          - '","metrics":[["AWS/EBS","BurstBalance","VolumeId","'
+          - !Ref EBS0
+          - >-
+            "]],"yAxis":{}}},{"type":"text","width":24,"height":1,"x":0,"y":27,"properties":{"markdown":"\n##
+            Head Node
+            Logs\n"}},{"type":"text","width":24,"height":1,"x":0,"y":28,"properties":{"markdown":"\n##
+            ParallelCluster's
+            logs\n"}},{"type":"log","width":24,"height":6,"x":0,"y":29,"properties":{"view":"table","title":"clustermgtd","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*clustermgtd/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"log","width":24,"height":6,"x":0,"y":35,"properties":{"view":"table","title":"slurm_resume","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*slurm_resume/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"log","width":24,"height":6,"x":0,"y":41,"properties":{"view":"table","title":"slurm_suspend","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*slurm_suspend/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"text","width":24,"height":1,"x":0,"y":47,"properties":{"markdown":"\n##
+            Scheduler's
+            logs\n"}},{"type":"log","width":24,"height":6,"x":0,"y":48,"properties":{"view":"table","title":"slurmctld","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*slurmctld/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"text","width":24,"height":1,"x":0,"y":54,"properties":{"markdown":"\n##
+            System's
+            logs\n"}},{"type":"log","width":24,"height":6,"x":0,"y":55,"properties":{"view":"table","title":"system-messages","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*system-messages/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"log","width":24,"height":6,"x":0,"y":61,"properties":{"view":"table","title":"cfn-init","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*cfn-init/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"log","width":24,"height":6,"x":0,"y":67,"properties":{"view":"table","title":"chef-client","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*chef-client/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"log","width":24,"height":6,"x":0,"y":73,"properties":{"view":"table","title":"cloud-init","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - >-
+            .*cloud-init$/\n| sort @timestamp desc\n| limit
+            100"}},{"type":"log","width":24,"height":6,"x":0,"y":79,"properties":{"view":"table","title":"supervisord","region":"
+          - !Ref 'AWS::Region'
+          - >-
+            ","query":"SOURCE '/aws/parallelcluster/hpc-202206131034' | fields
+            @timestamp,@message\n| filter @logStream like /
+          - !GetAtt 
+            - HeadNode
+            - PrivateIp
+          - '.*supervisord/\n| sort @timestamp desc\n| limit 100"}}]}'
+      DashboardName: !Join 
+        - ''
+        - - hpc-
+          - !Ref 'AWS::Region'
+    Type: 'AWS::CloudWatch::Dashboard'
+  ComputeFleetLaunchTemplate2d779c5d34ecfcc2A7D6EE04:
+    Properties:
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvdba
+            VirtualName: ephemeral0
+          - DeviceName: /dev/xvdbb
+            VirtualName: ephemeral1
+          - DeviceName: /dev/xvdbc
+            VirtualName: ephemeral2
+          - DeviceName: /dev/xvdbd
+            VirtualName: ephemeral3
+          - DeviceName: /dev/xvdbe
+            VirtualName: ephemeral4
+          - DeviceName: /dev/xvdbf
+            VirtualName: ephemeral5
+          - DeviceName: /dev/xvdbg
+            VirtualName: ephemeral6
+          - DeviceName: /dev/xvdbh
+            VirtualName: ephemeral7
+          - DeviceName: /dev/xvdbi
+            VirtualName: ephemeral8
+          - DeviceName: /dev/xvdbj
+            VirtualName: ephemeral9
+          - DeviceName: /dev/xvdbk
+            VirtualName: ephemeral10
+          - DeviceName: /dev/xvdbl
+            VirtualName: ephemeral11
+          - DeviceName: /dev/xvdbm
+            VirtualName: ephemeral12
+          - DeviceName: /dev/xvdbn
+            VirtualName: ephemeral13
+          - DeviceName: /dev/xvdbo
+            VirtualName: ephemeral14
+          - DeviceName: /dev/xvdbp
+            VirtualName: ephemeral15
+          - DeviceName: /dev/xvdbq
+            VirtualName: ephemeral16
+          - DeviceName: /dev/xvdbr
+            VirtualName: ephemeral17
+          - DeviceName: /dev/xvdbs
+            VirtualName: ephemeral18
+          - DeviceName: /dev/xvdbt
+            VirtualName: ephemeral19
+          - DeviceName: /dev/xvdbu
+            VirtualName: ephemeral20
+          - DeviceName: /dev/xvdbv
+            VirtualName: ephemeral21
+          - DeviceName: /dev/xvdbw
+            VirtualName: ephemeral22
+          - DeviceName: /dev/xvdbx
+            VirtualName: ephemeral23
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              VolumeSize: 35
+              VolumeType: gp2
+        CpuOptions:
+          CoreCount: 2
+          ThreadsPerCore: 1
+        EbsOptimized: true
+        IamInstanceProfile:
+          Name: !Ref InstanceProfile24989d8ee41c1575
+        ImageId: ami-078409bffe99f3c91
+        InstanceInitiatedShutdownBehavior: terminate
+        InstanceType: c5.xlarge
+        Monitoring:
+          Enabled: false
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            Groups:
+              - !Ref ComputeSecurityGroup
+            SubnetId: subnet-0a5075dc971b1b840
+        Placement:
+          GroupName: !Ref ComputeFleetPlacementGroup24989d8ee41c1575A1C47486
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: 'parallelcluster:cluster-name'
+                Value: hpc
+              - Key: Name
+                Value: Compute
+              - Key: 'parallelcluster:node-type'
+                Value: Compute
+              - Key: 'parallelcluster:attributes'
+                Value: 'alinux2, slurm, 3.1.4, x86_64'
+              - Key: 'parallelcluster:networking'
+                Value: EFA=NONE
+              - Key: 'parallelcluster:filesystem'
+                Value: 'efs=0, multiebs=1, raid=0, fsx=0'
+              - Key: 'parallelcluster:queue-name'
+                Value: compute
+              - Key: 'parallelcluster:compute-resource-name'
+                Value: compute
+              - Key: 'parallelcluster:version'
+                Value: 3.1.4
+          - ResourceType: volume
+            Tags:
+              - Key: 'parallelcluster:cluster-name'
+                Value: hpc
+              - Key: 'parallelcluster:node-type'
+                Value: Compute
+              - Key: 'parallelcluster:queue-name'
+                Value: compute
+              - Key: 'parallelcluster:compute-resource-name'
+                Value: compute
+              - Key: 'parallelcluster:version'
+                Value: 3.1.4
+        UserData: !Base64 
+          'Fn::Sub':
+            - >
+              Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+              MIME-Version: 1.0
+
+
+              --==BOUNDARY==
+
+              Content-Type: text/cloud-boothook; charset="us-ascii"
+
+              MIME-Version: 1.0
+
+
+              #!/bin/bash -x
+
+
+              which dnf 2>/dev/null; dnf=$?
+
+              which yum 2>/dev/null; yum=$?
+
+
+              if [ "${!dnf}" == "0" ]; then
+                echo "proxy=${DnfProxy}" >> /etc/dnf/dnf.conf
+              elif [ "${!yum}" == "0" ]; then
+                echo "proxy=${YumProxy}" >> /etc/yum.conf
+              else
+                echo "Not yum system"
+              fi
+
+
+              which apt-get && echo "Acquire::http::Proxy \"${AptProxy}\";" >>
+              /etc/apt/apt.conf || echo "Not apt system"
+
+
+              proxy=${ProxyServer}
+
+              if [ "${!proxy}" != "NONE" ]; then
+                proxy_host=$(echo "${!proxy}" | awk -F/ '{print $3}' | cut -d: -f1)
+                proxy_port=$(echo "${!proxy}" | awk -F/ '{print $3}' | cut -d: -f2)
+                echo -e "[Boto]\nproxy = ${!proxy_host}\nproxy_port = ${!proxy_port}\n" >/etc/boto.cfg
+                cat >> /etc/profile.d/proxy.sh <<PROXY
+              export http_proxy="${!proxy}"
+
+              export https_proxy="${!proxy}"
+
+              export no_proxy="localhost,127.0.0.1,169.254.169.254"
+
+              export HTTP_PROXY="${!proxy}"
+
+              export HTTPS_PROXY="${!proxy}"
+
+              export NO_PROXY="localhost,127.0.0.1,169.254.169.254"
+
+              PROXY
+
+              fi
+
+
+              --==BOUNDARY==
+
+              Content-Type: text/cloud-config; charset=us-ascii
+
+              MIME-Version: 1.0
+
+
+              package_update: false
+
+              package_upgrade: false
+
+              repo_upgrade: none
+
+
+              datasource_list: [ Ec2, None ]
+
+              output:
+                all: "| tee -a /var/log/cloud-init-output.log | logger -t user-data -s 2>/dev/console"
+              write_files:
+                - path: /tmp/dna.json
+                  permissions: '0644'
+                  owner: root:root
+                  content: |
+                    {
+                      "cluster": {
+                        "stack_name": "${AWS::StackName}",
+                        "enable_efa": "${EnableEfa}",
+                        "raid_parameters": "${RAIDOptions}",
+                        "base_os": "${BaseOS}",
+                        "preinstall": "${PreInstallScript}",
+                        "preinstall_args": "${PreInstallArgs}",
+                        "postinstall": "${PostInstallScript}",
+                        "postinstall_args": "${PostInstallArgs}",
+                        "region": "${AWS::Region}",
+                        "efs_fs_id": "${EFSId}",
+                        "efs_shared_dir": "${EFSOptions}",
+                        "fsx_fs_id": "${FSXId}",
+                        "fsx_mount_name": "${FSXMountName}",
+                        "fsx_dns_name": "${FSXDNSName}",
+                        "fsx_options": "${FSXOptions}",
+                        "scheduler": "${Scheduler}",
+                        "disable_hyperthreading_manually": "${DisableHyperThreadingManually}",
+                        "ephemeral_dir": "${EphemeralDir}",
+                        "ebs_shared_dirs": "${EbsSharedDirs}",
+                        "proxy": "${ProxyServer}",
+                        "ddb_table": "${DynamoDBTable}",
+                        "log_group_name": "${LogGroupName}",
+                        "dns_domain": "${ClusterDNSDomain}",
+                        "hosted_zone": "${ClusterHostedZone}",
+                        "node_type": "ComputeFleet",
+                        "cluster_user": "${OSUser}",
+                        "enable_intel_hpc_platform": "${IntelHPCPlatform}",
+                        "cw_logging_enabled": "${CWLoggingEnabled}",
+                        "scheduler_queue_name": "${QueueName}",
+                        "scheduler_compute_resource_name": "${ComputeResourceName}",
+                        "enable_efa_gdr": "${EnableEfaGdr}",
+                        "custom_node_package": "${CustomNodePackage}",
+                        "custom_awsbatchcli_package": "${CustomAwsBatchCliPackage}",
+                        "use_private_hostname": "${UsePrivateHostname}",
+                        "head_node_private_ip": "${HeadNodePrivateIp}",
+                        "directory_service": {
+                          "enabled": "${DirectoryServiceEnabled}"
+                        }
+                      }
+                    }
+                - path: /etc/chef/client.rb
+                  permissions: '0644'
+                  owner: root:root
+                  content: cookbook_path ['/etc/chef/cookbooks']
+                - path: /tmp/extra.json
+                  permissions: '0644'
+                  owner: root:root
+                  content: |
+                    ${ExtraJson}
+
+              --==BOUNDARY==
+
+              Content-Type: text/x-shellscript; charset="us-ascii"
+
+              MIME-Version: 1.0
+
+
+              #!/bin/bash -x
+
+
+              function error_exit
+
+              {
+                echo "Bootstrap failed with error: $1"
+                # wait logs flush before signaling the failure
+                sleep 10
+                # TODO: add possibility to override this behavior and keep the instance for debugging
+                shutdown -h now
+                exit 1
+              }
+
+              function vendor_cookbook
+
+              {
+                mkdir /tmp/cookbooks
+                cd /tmp/cookbooks
+                tar -xzf /etc/chef/aws-parallelcluster-cookbook.tgz
+                HOME_BAK="${!HOME}"
+                export HOME="/tmp"
+                for d in `ls /tmp/cookbooks`; do
+                  cd /tmp/cookbooks/$d
+                  LANG=en_US.UTF-8 /opt/cinc/embedded/bin/berks vendor /etc/chef/cookbooks --delete || error_exit 'Vendoring cookbook failed.'
+                done;
+                export HOME="${!HOME_BAK}"
+              }
+
+              [ -f /etc/profile.d/proxy.sh ] && . /etc/profile.d/proxy.sh
+
+              custom_cookbook=${CustomChefCookbook}
+
+              export _region=${AWS::Region}
+
+              s3_url=${AWS::URLSuffix}
+
+              if [ "${!custom_cookbook}" != "NONE" ]; then
+                if [[ "${!custom_cookbook}" =~ ^s3://([^/]*)(.*) ]]; then
+                  bucket_region=$(aws s3api get-bucket-location --bucket ${!BASH_REMATCH[1]} | jq -r '.LocationConstraint')
+                  if [[ "${!bucket_region}" == null ]]; then
+                    bucket_region="us-east-1"
+                  fi
+                  cookbook_url=$(aws s3 presign "${!custom_cookbook}" --region "${!bucket_region}")
+                else
+                  cookbook_url=${!custom_cookbook}
+                fi
+              fi
+
+              export
+              PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/opt/aws/bin
+
+              export
+              parallelcluster_version=aws-parallelcluster-${ParallelClusterVersion}
+
+              export cookbook_version=${CookbookVersion}
+
+              export chef_version=${ChefVersion}
+
+              export berkshelf_version=${BerkshelfVersion}
+
+              if [ -f /opt/parallelcluster/.bootstrapped ]; then
+                installed_version=$(cat /opt/parallelcluster/.bootstrapped)
+                if [ "${!cookbook_version}" != "${!installed_version}" ]; then
+                  error_exit "This AMI was created with ${!installed_version}, but is trying to be used with ${!cookbook_version}. Please either use an AMI created with ${!cookbook_version} or change your ParallelCluster to ${!installed_version}"
+                fi
+              else
+                error_exit "This AMI was not baked by ParallelCluster. Please use pcluster createami command to create an AMI by providing your AMI as parent image."
+              fi
+
+              if [ "${!custom_cookbook}" != "NONE" ]; then
+                curl --retry 3 -v -L -o /etc/chef/aws-parallelcluster-cookbook.tgz ${!cookbook_url}
+                vendor_cookbook
+              fi
+
+              cd /tmp
+
+
+              mkdir -p /etc/chef/ohai/hints
+
+              touch /etc/chef/ohai/hints/ec2.json
+
+              jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1
+              * $f2' > /etc/chef/dna.json || ( echo "jq not installed or invalid
+              extra_json"; cp /tmp/dna.json /etc/chef/dna.json)
+
+              {
+                pushd /etc/chef &&
+                cinc-client --local-mode --config /etc/chef/client.rb --log_level info --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::init &&
+                /opt/parallelcluster/scripts/fetch_and_run -preinstall &&
+                cinc-client --local-mode --config /etc/chef/client.rb --log_level info --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::config &&
+                /opt/parallelcluster/scripts/fetch_and_run -postinstall &&
+                cinc-client --local-mode --config /etc/chef/client.rb --log_level info --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize &&
+                popd
+              } || error_exit 'Failed to run bootstrap recipes. If --norollback
+              was specified, check /var/log/cfn-init.log and
+              /var/log/cloud-init-output.log.'
+
+
+              if [ ! -f /opt/parallelcluster/.bootstrapped ]; then
+                echo ${!cookbook_version} | tee /opt/parallelcluster/.bootstrapped
+              fi
+
+              # End of file
+
+              --==BOUNDARY==
+            - AptProxy: 'false'
+              BaseOS: alinux2
+              BerkshelfVersion: 7.2.0
+              CWLoggingEnabled: 'true'
+              ChefVersion: 17.2.29
+              ClusterDNSDomain: !Ref ClusterDNSDomain
+              ClusterHostedZone: !Ref Route53HostedZone
+              ComputeResourceName: compute
+              CookbookVersion: aws-parallelcluster-cookbook-3.1.4
+              CustomAwsBatchCliPackage: ''
+              CustomChefCookbook: NONE
+              CustomNodePackage: ''
+              DirectoryServiceEnabled: 'false'
+              DisableHyperThreadingManually: 'false'
+              DnfProxy: ''
+              DynamoDBTable: !Ref DynamoDBTable
+              EFSId: NONE
+              EFSOptions: 'NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE'
+              EbsSharedDirs: /shared
+              EnableEfa: NONE
+              EnableEfaGdr: NONE
+              EphemeralDir: /scratch
+              ExtraJson: '{}'
+              FSXDNSName: ''
+              FSXId: NONE
+              FSXMountName: ''
+              FSXOptions: >-
+                NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
+              HeadNodePrivateIp: !GetAtt 
+                - HeadNodeENI
+                - PrimaryPrivateIpAddress
+              IntelHPCPlatform: 'false'
+              LogGroupName: /aws/parallelcluster/hpc-202206131034
+              OSUser: ec2-user
+              ParallelClusterVersion: 3.1.4
+              PostInstallArgs: NONE
+              PostInstallScript: NONE
+              PreInstallArgs: NONE
+              PreInstallScript: NONE
+              ProxyServer: NONE
+              QueueName: compute
+              RAIDOptions: 'NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE'
+              Scheduler: slurm
+              UsePrivateHostname: 'false'
+              YumProxy: _none_
+      LaunchTemplateName: hpc-compute-compute
+    Type: 'AWS::EC2::LaunchTemplate'
+  ComputeFleetPlacementGroup24989d8ee41c1575A1C47486:
+    Properties:
+      Strategy: cluster
+    Type: 'AWS::EC2::PlacementGroup'
+  ComputeFleetTerminateComputeFleetCustomResource9CE1795B:
+    DependsOn:
+      - ComputeFleetPlacementGroup24989d8ee41c1575A1C47486
+      - ComputeSecurityGroup
+    Properties:
+      Action: TERMINATE_EC2_INSTANCES
+      ServiceToken: !GetAtt 
+        - CleanupResourcesFunction
+        - Arn
+      StackName: hpc
+    Type: 'AWS::CloudFormation::CustomResource'
+  ComputeSecurityGroup:
+    Properties:
+      GroupDescription: Allow access to compute nodes
+      VpcId: vpc-0a7324422d0e87a3a
+    Type: 'AWS::EC2::SecurityGroup'
+  ComputeSecurityGroupEgress:
+    Properties:
+      DestinationSecurityGroupId: !Ref ComputeSecurityGroup
+      FromPort: 0
+      GroupId: !Ref ComputeSecurityGroup
+      IpProtocol: '-1'
+      ToPort: 65535
+    Type: 'AWS::EC2::SecurityGroupEgress'
+  ComputeSecurityGroupHeadNodeIngress0:
+    Properties:
+      FromPort: 0
+      GroupId: !Ref ComputeSecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: !Ref HeadNodeSecurityGroup
+      ToPort: 65535
+    Type: 'AWS::EC2::SecurityGroupIngress'
+  ComputeSecurityGroupIngress:
+    Properties:
+      FromPort: 0
+      GroupId: !Ref ComputeSecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: !Ref ComputeSecurityGroup
+      ToPort: 65535
+    Type: 'AWS::EC2::SecurityGroupIngress'
+  ComputeSecurityGroupNormalEgress:
+    DependsOn:
+      - ComputeSecurityGroupEgress
+    Properties:
+      CidrIp: 0.0.0.0/0
+      FromPort: 0
+      GroupId: !Ref ComputeSecurityGroup
+      IpProtocol: '-1'
+      ToPort: 65535
+    Type: 'AWS::EC2::SecurityGroupEgress'
+  DynamoDBTable:
+    DeletionPolicy: Delete
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: Id
+          AttributeType: S
+        - AttributeName: InstanceId
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: InstanceId
+          KeySchema:
+            - AttributeName: InstanceId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      KeySchema:
+        - AttributeName: Id
+          KeyType: HASH
+      TableName: parallelcluster-hpc
+    Type: 'AWS::DynamoDB::Table'
+    UpdateReplacePolicy: Retain
+  EBS0:
+    DeletionPolicy: Delete
+    Properties:
+      AvailabilityZone: us-east-1c
+      Encrypted: true
+      Size: 35
+      Tags:
+        - Key: Name
+          Value: default-ebs
+      VolumeType: gp2
+    Type: 'AWS::EC2::Volume'
+  HeadNode:
+    DependsOn:
+      - ComputeFleetLaunchTemplate2d779c5d34ecfcc2A7D6EE04
+      - ComputeFleetPlacementGroup24989d8ee41c1575A1C47486
+      - ComputeFleetTerminateComputeFleetCustomResource9CE1795B
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref HeadNodeLaunchTemplate
+        Version: !GetAtt 
+          - HeadNodeLaunchTemplate
+          - LatestVersionNumber
+    Type: 'AWS::EC2::Instance'
+  HeadNodeENI:
+    Properties:
+      Description: AWS ParallelCluster head node interface
+      GroupSet:
+        - !Ref HeadNodeSecurityGroup
+      SourceDestCheck: false
+      SubnetId: subnet-0a5075dc971b1b840
+    Type: 'AWS::EC2::NetworkInterface'
+  HeadNodeLaunchTemplate:
+    Metadata:
+      'AWS::CloudFormation::Init':
+        cfnHupConfig:
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub 
+                - |-
+                  [main]
+                  stack=${StackId}
+                  region=${Region}
+                  interval=2
+                - Region: !Ref 'AWS::Region'
+                  StackId: !Ref 'AWS::StackId'
+              group: root
+              mode: '000400'
+              owner: root
+            /etc/cfn/hooks.d/parallelcluster-update.conf:
+              content: !Sub 
+                - >
+                  [parallelcluster-update]
+
+                  triggers=post.update
+
+                  path=Resources.HeadNodeLaunchTemplate.Metadata.AWS::CloudFormation::Init
+
+                  action=PATH=/usr/local/bin:/bin:/usr/bin:/opt/aws/bin;
+                  cfn-init -v --stack ${StackName} --resource
+                  HeadNodeLaunchTemplate --configsets update --region ${Region}
+
+                  runas=root
+                - Region: !Ref 'AWS::Region'
+                  StackName: hpc
+              group: root
+              mode: '000400'
+              owner: root
+        chefConfig:
+          commands:
+            chef:
+              command: >-
+                cinc-client --local-mode --config /etc/chef/client.rb
+                --log_level info --logfile /var/log/chef-client.log
+                --force-formatter --no-color --chef-zero-port 8889
+                --json-attributes /etc/chef/dna.json --override-runlist
+                aws-parallelcluster::config
+              cwd: /etc/chef
+        chefFinalize:
+          commands:
+            bootstrap:
+              command: >-
+                [ ! -f /opt/parallelcluster/.bootstrapped ] && echo
+                ${cookbook_version} | tee /opt/parallelcluster/.bootstrapped ||
+                exit 0
+            chef:
+              command: >-
+                cinc-client --local-mode --config /etc/chef/client.rb
+                --log_level info --logfile /var/log/chef-client.log
+                --force-formatter --no-color --chef-zero-port 8889
+                --json-attributes /etc/chef/dna.json --override-runlist
+                aws-parallelcluster::finalize
+              cwd: /etc/chef
+        chefPrepEnv:
+          commands:
+            chef:
+              command: >-
+                cinc-client --local-mode --config /etc/chef/client.rb
+                --log_level info --logfile /var/log/chef-client.log
+                --force-formatter --no-color --chef-zero-port 8889
+                --json-attributes /etc/chef/dna.json --override-runlist
+                aws-parallelcluster::init
+              cwd: /etc/chef
+        chefUpdate:
+          commands:
+            chef:
+              command: !Join 
+                - ''
+                - - >-
+                    cinc-client --local-mode --config /etc/chef/client.rb
+                    --log_level info --logfile /var/log/chef-client.log
+                    --force-formatter --no-color --chef-zero-port 8889
+                    --json-attributes /etc/chef/dna.json --override-runlist
+                    aws-parallelcluster::update && cfn-signal --exit-code=0
+                    --reason='Update complete' '
+                  - !Ref HeadNodeWaitConditionHandle20220613103453
+                  - ''' || cfn-signal --exit-code=1 --reason=''Update failed'' '''
+                  - !Ref HeadNodeWaitConditionHandle20220613103453
+                  - ''''
+              cwd: /etc/chef
+        configSets:
+          default:
+            - cfnHupConfig
+            - chefPrepEnv
+            - shellRunPreInstall
+            - chefConfig
+            - shellRunPostInstall
+            - chefFinalize
+          deployFiles:
+            - deployConfigFiles
+          update:
+            - deployConfigFiles
+            - chefUpdate
+        deployConfigFiles:
+          commands:
+            jq:
+              command: >-
+                jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n
+                '$f1 * $f2' > /etc/chef/dna.json || ( echo "jq not installed";
+                cp /tmp/dna.json /etc/chef/dna.json )
+            mkdir:
+              command: mkdir -p /etc/chef/ohai/hints
+            touch:
+              command: touch /etc/chef/ohai/hints/ec2.json
+          files:
+            /etc/chef/client.rb:
+              content: 'cookbook_path [''/etc/chef/cookbooks'']'
+              group: root
+              mode: '000644'
+              owner: root
+            /opt/parallelcluster/shared/launch-templates-config.json:
+              content:
+                Queues:
+                  compute:
+                    ComputeResources:
+                      compute:
+                        LaunchTemplate:
+                          Id: !Ref ComputeFleetLaunchTemplate2d779c5d34ecfcc2A7D6EE04
+                          Version: !GetAtt 
+                            - ComputeFleetLaunchTemplate2d779c5d34ecfcc2A7D6EE04
+                            - LatestVersionNumber
+              group: root
+              mode: '000644'
+              owner: root
+            /tmp/dna.json:
+              content: !Join 
+                - ''
+                - - |-
+                    {
+                        "cluster": {
+                            "stack_name": "hpc",
+                            "stack_arn": "
+                  - !Ref 'AWS::StackId'
+                  - |-
+                    ",
+                            "scheduler_plugin_substack_arn": "",
+                            "raid_vol_ids": "NONE",
+                            "raid_parameters": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                            "disable_hyperthreading_manually": "false",
+                            "base_os": "alinux2",
+                            "preinstall": "NONE",
+                            "preinstall_args": "NONE",
+                            "postinstall": "NONE",
+                            "postinstall_args": "NONE",
+                            "region": "
+                  - !Ref 'AWS::Region'
+                  - |-
+                    ",
+                            "efs_fs_id": "NONE",
+                            "efs_shared_dir": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                            "fsx_fs_id": "NONE",
+                            "fsx_mount_name": "",
+                            "fsx_dns_name": "",
+                            "fsx_options": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                            "volume": "
+                  - !Ref EBS0
+                  - |-
+                    ",
+                            "scheduler": "slurm",
+                            "ephemeral_dir": "/scratch",
+                            "ebs_shared_dirs": "/shared",
+                            "proxy": "NONE",
+                            "node_type": "HeadNode",
+                            "cluster_user": "ec2-user",
+                            "log_group_name": "/aws/parallelcluster/hpc-202206131034",
+                            "dcv_enabled": "false",
+                            "dcv_port": "NONE",
+                            "enable_intel_hpc_platform": "false",
+                            "cw_logging_enabled": "true",
+                            "cluster_s3_bucket": "parallelcluster-a236158d1d66ed84-v1-do-not-delete",
+                            "cluster_config_s3_key": "parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3/configs/cluster-config-with-implied-values.yaml",
+                            "cluster_config_version": "mJU5ugK.R4mmi0vNRvPjQFYE1zlu9Ew1",
+                            "instance_types_data_s3_key": "parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3/configs/instance-types-data.json",
+                            "custom_node_package": "",
+                            "custom_awsbatchcli_package": "",
+                            "head_node_imds_secured": "true",
+                            "dns_domain": "
+                  - !Ref ClusterDNSDomain
+                  - |-
+                    ",
+                            "hosted_zone": "
+                  - !Ref Route53HostedZone
+                  - |-
+                    ",
+                            "ddb_table": "
+                  - !Ref DynamoDBTable
+                  - |-
+                    ",
+                            "use_private_hostname": "false"
+                        }
+                    }
+              encoding: plain
+              group: root
+              mode: '000644'
+              owner: root
+            /tmp/extra.json:
+              content: '{}'
+              group: root
+              mode: '000644'
+              owner: root
+            /tmp/wait_condition_handle.txt:
+              content: !Ref HeadNodeWaitConditionHandle20220613103453
+              group: root
+              mode: '000644'
+              owner: root
+        shellRunPostInstall:
+          commands:
+            runpostinstall:
+              command: /opt/parallelcluster/scripts/fetch_and_run -postinstall
+        shellRunPreInstall:
+          commands:
+            runpreinstall:
+              command: /opt/parallelcluster/scripts/fetch_and_run -preinstall
+      Comment: AWS ParallelCluster Head Node
+    Properties:
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvdba
+            VirtualName: ephemeral0
+          - DeviceName: /dev/xvdbb
+            VirtualName: ephemeral1
+          - DeviceName: /dev/xvdbc
+            VirtualName: ephemeral2
+          - DeviceName: /dev/xvdbd
+            VirtualName: ephemeral3
+          - DeviceName: /dev/xvdbe
+            VirtualName: ephemeral4
+          - DeviceName: /dev/xvdbf
+            VirtualName: ephemeral5
+          - DeviceName: /dev/xvdbg
+            VirtualName: ephemeral6
+          - DeviceName: /dev/xvdbh
+            VirtualName: ephemeral7
+          - DeviceName: /dev/xvdbi
+            VirtualName: ephemeral8
+          - DeviceName: /dev/xvdbj
+            VirtualName: ephemeral9
+          - DeviceName: /dev/xvdbk
+            VirtualName: ephemeral10
+          - DeviceName: /dev/xvdbl
+            VirtualName: ephemeral11
+          - DeviceName: /dev/xvdbm
+            VirtualName: ephemeral12
+          - DeviceName: /dev/xvdbn
+            VirtualName: ephemeral13
+          - DeviceName: /dev/xvdbo
+            VirtualName: ephemeral14
+          - DeviceName: /dev/xvdbp
+            VirtualName: ephemeral15
+          - DeviceName: /dev/xvdbq
+            VirtualName: ephemeral16
+          - DeviceName: /dev/xvdbr
+            VirtualName: ephemeral17
+          - DeviceName: /dev/xvdbs
+            VirtualName: ephemeral18
+          - DeviceName: /dev/xvdbt
+            VirtualName: ephemeral19
+          - DeviceName: /dev/xvdbu
+            VirtualName: ephemeral20
+          - DeviceName: /dev/xvdbv
+            VirtualName: ephemeral21
+          - DeviceName: /dev/xvdbw
+            VirtualName: ephemeral22
+          - DeviceName: /dev/xvdbx
+            VirtualName: ephemeral23
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              VolumeSize: 35
+              VolumeType: gp2
+        EbsOptimized: true
+        IamInstanceProfile:
+          Name: !Ref InstanceProfileHeadNode
+        ImageId: ami-078409bffe99f3c91
+        InstanceType: c5.xlarge
+        KeyName: lab-your-key
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            NetworkInterfaceId: !Ref HeadNodeENI
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: 'parallelcluster:cluster-name'
+                Value: hpc
+              - Key: Name
+                Value: HeadNode
+              - Key: 'parallelcluster:node-type'
+                Value: HeadNode
+              - Key: 'parallelcluster:attributes'
+                Value: 'alinux2, slurm, 3.1.4, x86_64'
+              - Key: 'parallelcluster:networking'
+                Value: EFA=NONE
+              - Key: 'parallelcluster:filesystem'
+                Value: 'efs=0, multiebs=1, raid=0, fsx=0'
+              - Key: 'parallelcluster:version'
+                Value: 3.1.4
+          - ResourceType: volume
+            Tags:
+              - Key: 'parallelcluster:cluster-name'
+                Value: hpc
+              - Key: 'parallelcluster:node-type'
+                Value: HeadNode
+              - Key: 'parallelcluster:version'
+                Value: 3.1.4
+        UserData: !Base64 
+          'Fn::Sub':
+            - >
+              Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+              MIME-Version: 1.0
+
+
+              --==BOUNDARY==
+
+              Content-Type: text/cloud-boothook; charset="us-ascii"
+
+              MIME-Version: 1.0
+
+
+              #!/bin/bash -x
+
+
+              which dnf 2>/dev/null; dnf=$?
+
+              which yum 2>/dev/null; yum=$?
+
+
+              if [ "${!dnf}" == "0" ]; then
+                echo "proxy=${DnfProxy}" >> /etc/dnf/dnf.conf
+              elif [ "${!yum}" == "0" ]; then
+                echo "proxy=${YumProxy}" >> /etc/yum.conf
+              else
+                echo "Not yum system"
+              fi
+
+
+              which apt-get && echo "Acquire::http::Proxy \"${AptProxy}\";" >>
+              /etc/apt/apt.conf || echo "Not apt system"
+
+
+              proxy=${ProxyServer}
+
+              if [ "${!proxy}" != "NONE" ]; then
+                proxy_host=$(echo "${!proxy}" | awk -F/ '{print $3}' | cut -d: -f1)
+                proxy_port=$(echo "${!proxy}" | awk -F/ '{print $3}' | cut -d: -f2)
+                echo -e "[Boto]\nproxy = ${!proxy_host}\nproxy_port = ${!proxy_port}\n" >/etc/boto.cfg
+                cat >> /etc/profile.d/proxy.sh <<PROXY
+              export http_proxy="${!proxy}"
+
+              export https_proxy="${!proxy}"
+
+              export no_proxy="localhost,127.0.0.1,169.254.169.254"
+
+              export HTTP_PROXY="${!proxy}"
+
+              export HTTPS_PROXY="${!proxy}"
+
+              export NO_PROXY="localhost,127.0.0.1,169.254.169.254"
+
+              PROXY
+
+              fi
+
+
+              --==BOUNDARY==
+
+              Content-Type: text/cloud-config; charset=us-ascii
+
+              MIME-Version: 1.0
+
+
+              package_update: false
+
+              package_upgrade: false
+
+              repo_upgrade: none
+
+
+              datasource_list: [ Ec2, None ]
+
+
+              --==BOUNDARY==
+
+              Content-Type: text/x-shellscript; charset="us-ascii"
+
+              MIME-Version: 1.0
+
+
+              #!/bin/bash -x
+
+
+              function error_exit
+
+              {
+                # wait logs flush before signaling the failure
+                sleep 10
+                cfn-signal --exit-code=1 --reason="$1" "${!wait_condition_handle_presigned_url}"
+                exit 1
+              }
+
+              function vendor_cookbook
+
+              {
+                mkdir /tmp/cookbooks
+                cd /tmp/cookbooks
+                tar -xzf /etc/chef/aws-parallelcluster-cookbook.tgz
+                HOME_BAK="${!HOME}"
+                export HOME="/tmp"
+                for d in `ls /tmp/cookbooks`; do
+                  cd /tmp/cookbooks/$d
+                  LANG=en_US.UTF-8 /opt/cinc/embedded/bin/berks vendor /etc/chef/cookbooks --delete || error_exit 'Vendoring cookbook failed.'
+                done;
+                export HOME="${!HOME_BAK}"
+              }
+
+              [ -f /etc/profile.d/proxy.sh ] && . /etc/profile.d/proxy.sh
+
+
+              # deploy config files
+
+              export
+              PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/opt/aws/bin
+
+              cd /tmp
+
+              cfn-init -s ${AWS::StackName} -v -c deployFiles -r
+              HeadNodeLaunchTemplate --region ${AWS::Region}
+
+              wait_condition_handle_presigned_url=$(cat
+              /tmp/wait_condition_handle.txt)
+
+
+              custom_cookbook=${CustomChefCookbook}
+
+              export _region=${AWS::Region}
+
+              s3_url=${AWS::URLSuffix}
+
+              if [ "${!custom_cookbook}" != "NONE" ]; then
+                if [[ "${!custom_cookbook}" =~ ^s3://([^/]*)(.*) ]]; then
+                  bucket_region=$(aws s3api get-bucket-location --bucket ${!BASH_REMATCH[1]} | jq -r '.LocationConstraint')
+                  if [[ "${!bucket_region}" == null ]]; then
+                    bucket_region="us-east-1"
+                  fi
+                  cookbook_url=$(aws s3 presign "${!custom_cookbook}" --region "${!bucket_region}")
+                else
+                  cookbook_url=${!custom_cookbook}
+                fi
+              fi
+
+              export
+              parallelcluster_version=aws-parallelcluster-${ParallelClusterVersion}
+
+              export cookbook_version=${CookbookVersion}
+
+              export chef_version=${ChefVersion}
+
+              export berkshelf_version=${BerkshelfVersion}
+
+              if [ -f /opt/parallelcluster/.bootstrapped ]; then
+                installed_version=$(cat /opt/parallelcluster/.bootstrapped)
+                if [ "${!cookbook_version}" != "${!installed_version}" ]; then
+                  error_exit "This AMI was created with ${!installed_version}, but is trying to be used with ${!cookbook_version}. Please either use an AMI created with ${!cookbook_version} or change your ParallelCluster to ${!installed_version}"
+                fi
+              else
+                error_exit "This AMI was not baked by ParallelCluster. Please use pcluster build-image command to create an AMI by providing your AMI as parent image."
+              fi
+
+              if [ "${!custom_cookbook}" != "NONE" ]; then
+                curl --retry 3 -v -L -o /etc/chef/aws-parallelcluster-cookbook.tgz ${!cookbook_url}
+                vendor_cookbook
+              fi
+
+
+              # Call CloudFormation
+
+              cfn-init -s ${AWS::StackName} -v -c default -r
+              HeadNodeLaunchTemplate --region ${AWS::Region} || error_exit
+              'Failed to run cfn-init. If --norollback was specified, check
+              /var/log/cfn-init.log and /var/log/cloud-init-output.log.'
+
+              cfn-signal --exit-code=0 --reason="HeadNode setup complete"
+              "${!wait_condition_handle_presigned_url}"
+
+              # End of file
+
+              --==BOUNDARY==
+            - AptProxy: 'false'
+              BerkshelfVersion: 7.2.0
+              ChefVersion: 17.2.29
+              CookbookVersion: aws-parallelcluster-cookbook-3.1.4
+              CustomChefCookbook: NONE
+              DnfProxy: ''
+              ParallelClusterVersion: 3.1.4
+              ProxyServer: NONE
+              YumProxy: _none_
+    Type: 'AWS::EC2::LaunchTemplate'
+  HeadNodeSecurityGroup:
+    Properties:
+      GroupDescription: Enable access to the head node
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 22
+          IpProtocol: tcp
+          ToPort: 22
+      VpcId: vpc-0a7324422d0e87a3a
+    Type: 'AWS::EC2::SecurityGroup'
+  HeadNodeSecurityGroupComputeIngress0:
+    Properties:
+      FromPort: 0
+      GroupId: !Ref HeadNodeSecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: !Ref ComputeSecurityGroup
+      ToPort: 65535
+    Type: 'AWS::EC2::SecurityGroupIngress'
+  HeadNodeWaitCondition20220613103453:
+    Properties:
+      Count: 1
+      Handle: !Ref HeadNodeWaitConditionHandle20220613103453
+      Timeout: '1800'
+    Type: 'AWS::CloudFormation::WaitCondition'
+  HeadNodeWaitConditionHandle20220613103453:
+    Type: 'AWS::CloudFormation::WaitConditionHandle'
+  InstanceProfile24989d8ee41c1575:
+    Properties:
+      Path: /parallelcluster/hpc/
+      Roles:
+        - !Ref Role24989d8ee41c1575
+    Type: 'AWS::IAM::InstanceProfile'
+  InstanceProfileHeadNode:
+    Properties:
+      Path: /parallelcluster/hpc/
+      Roles:
+        - !Ref RoleHeadNode
+    Type: 'AWS::IAM::InstanceProfile'
+  ParallelClusterPolicies24989d8ee41c1575:
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: 'ec2:DescribeInstanceAttribute'
+            Effect: Allow
+            Resource: '*'
+            Sid: Ec2
+          - Action: 's3:GetObject'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':s3:::'
+                - !Ref 'AWS::Region'
+                - '-aws-parallelcluster/*'
+            Sid: S3GetObj
+        Version: 2012-10-17
+      PolicyName: parallelcluster
+      Roles:
+        - !Ref Role24989d8ee41c1575
+    Type: 'AWS::IAM::Policy'
+  ParallelClusterPoliciesHeadNode:
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'ec2:DescribeInstanceAttribute'
+              - 'ec2:DescribeInstances'
+              - 'ec2:DescribeInstanceStatus'
+              - 'ec2:DescribeVolumes'
+            Effect: Allow
+            Resource: '*'
+            Sid: Ec2
+          - Action:
+              - 'ec2:AttachVolume'
+              - 'ec2:CreateTags'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':instance/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':volume/*'
+            Sid: Ec2TagsAndVolumes
+          - Action: 's3:GetObject'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':s3:::'
+                - !Ref 'AWS::Region'
+                - '-aws-parallelcluster/*'
+            Sid: S3GetObj
+          - Action:
+              - 's3:GetObject'
+              - 's3:GetObjectVersion'
+              - 's3:GetBucketLocation'
+              - 's3:ListBucket'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':s3:::parallelcluster-a236158d1d66ed84-v1-do-not-delete'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - >-
+                    :s3:::parallelcluster-a236158d1d66ed84-v1-do-not-delete/parallelcluster/3.1.4/clusters/hpc-ducfufh1pg3y86n3/*
+            Sid: ResourcesS3Bucket
+          - Action:
+              - 'cloudformation:DescribeStacks'
+              - 'cloudformation:DescribeStackResource'
+              - 'cloudformation:SignalResource'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':cloudformation:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':stack/hpc/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':cloudformation:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':stack/hpc-*/*'
+            Sid: CloudFormation
+          - Action: 's3:GetObject'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':s3:::dcv-license.'
+                - !Ref 'AWS::Region'
+                - /*
+            Sid: DcvLicense
+          - Action: 'ec2:TerminateInstances'
+            Condition:
+              StringEquals:
+                'ec2:ResourceTag/parallelcluster:cluster-name': hpc
+            Effect: Allow
+            Resource: '*'
+            Sid: EC2Terminate
+          - Action: 'ec2:RunInstances'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':subnet/subnet-0a5075dc971b1b840'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':network-interface/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':instance/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':volume/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':key-pair/lab-your-key'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':security-group/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':launch-template/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':placement-group/*'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':ec2:'
+                  - !Ref 'AWS::Region'
+                  - '::image/ami-078409bffe99f3c91'
+            Sid: EC2RunInstances
+          - Action: 'iam:PassRole'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':iam::'
+                - !Ref 'AWS::AccountId'
+                - ':role/parallelcluster/hpc/*'
+            Sid: PassRole
+        Version: 2012-10-17
+      PolicyName: parallelcluster
+      Roles:
+        - !Ref RoleHeadNode
+    Type: 'AWS::IAM::Policy'
+  ParallelClusterSlurmRoute53Policies:
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: 'route53:ChangeResourceRecordSets'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':route53:::hostedzone/'
+                - !Ref Route53HostedZone
+            Sid: Route53Add
+        Version: 2012-10-17
+      PolicyName: parallelcluster-slurm-route53
+      Roles:
+        - !Ref RoleHeadNode
+    Type: 'AWS::IAM::Policy'
+  Role24989d8ee41c1575:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: !Join 
+                - ''
+                - - ec2.
+                  - !Ref 'AWS::URLSuffix'
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+      Path: /parallelcluster/hpc/
+    Type: 'AWS::IAM::Role'
+  RoleHeadNode:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: !Join 
+                - ''
+                - - ec2.
+                  - !Ref 'AWS::URLSuffix'
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+      Path: /parallelcluster/hpc/
+    Type: 'AWS::IAM::Role'
+  Route53HostedZone:
+    Properties:
+      Name: !Ref ClusterDNSDomain
+      VPCs:
+        - VPCId: vpc-0a7324422d0e87a3a
+          VPCRegion: !Ref 'AWS::Region'
+    Type: 'AWS::Route53::HostedZone'
+  SlurmPolicies24989d8ee41c1575:
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: 'dynamodb:Query'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':dynamodb:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':table/parallelcluster-hpc'
+              - !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':dynamodb:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':table/parallelcluster-hpc/index/*'
+            Sid: DynamoDBTableQuery
+        Version: 2012-10-17
+      PolicyName: parallelcluster-slurm-compute
+      Roles:
+        - !Ref Role24989d8ee41c1575
+    Type: 'AWS::IAM::Policy'
+  SlurmPoliciesHeadNode:
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'dynamodb:PutItem'
+              - 'dynamodb:BatchWriteItem'
+              - 'dynamodb:GetItem'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':dynamodb:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':table/parallelcluster-hpc'
+            Sid: DynamoDBTable
+        Version: 2012-10-17
+      PolicyName: parallelcluster-slurm-head-node
+      Roles:
+        - !Ref RoleHeadNode
+    Type: 'AWS::IAM::Policy'
