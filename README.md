@@ -18,4 +18,4 @@ For a full list of software, including build and usage instructions, see the [us
 Icipe allows users to run their workloads on AWS cloud 
 
 # Templates and documentation 
- [running parallel cluster](https://link-url-here.org)
+ [running parallel cluster](https://github.com/espirado/Icipe-computing-Research/tree/main/Aws-Cluster)
