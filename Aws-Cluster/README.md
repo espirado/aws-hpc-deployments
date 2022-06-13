@@ -17,7 +17,7 @@ The main aim of the template is to assist icipe team to provision parrallel clus
 
 ### Underlying infrastucture 
 
-![Work Design](Images/pc-architecture.png)
+![Work Design](https://github.com/espirado/Icipe-computing-Research/blob/main/Images/pc-architecture.png)
 
 
 # USER GUIDE
