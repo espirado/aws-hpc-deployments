@@ -1,0 +1,55 @@
+[
+    {
+        "label": "json",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "json",
+        "description": "json",
+        "detail": "json",
+        "documentation": {}
+    },
+    {
+        "label": "sys",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "sys",
+        "description": "sys",
+        "detail": "sys",
+        "documentation": {}
+    },
+    {
+        "label": "resource_filename",
+        "importPath": "pkg_resources",
+        "description": "pkg_resources",
+        "isExtraImport": true,
+        "detail": "pkg_resources",
+        "documentation": {}
+    },
+    {
+        "label": "region",
+        "kind": 5,
+        "importPath": "monitoring.custom-metrics.aws-region",
+        "description": "monitoring.custom-metrics.aws-region",
+        "peekOfCode": "region = str(sys.argv[1])\nname = None\nendpoint_file = resource_filename('botocore', 'data/endpoints.json')\nwith open(endpoint_file, 'r') as ep_file:\n    data = json.load(ep_file)\n    for partition in data['partitions']:\n        if region in partition['regions']:\n            name = partition['regions'][region]['description']\n            break\nprint(name)",
+        "detail": "monitoring.custom-metrics.aws-region",
+        "documentation": {}
+    },
+    {
+        "label": "name",
+        "kind": 5,
+        "importPath": "monitoring.custom-metrics.aws-region",
+        "description": "monitoring.custom-metrics.aws-region",
+        "peekOfCode": "name = None\nendpoint_file = resource_filename('botocore', 'data/endpoints.json')\nwith open(endpoint_file, 'r') as ep_file:\n    data = json.load(ep_file)\n    for partition in data['partitions']:\n        if region in partition['regions']:\n            name = partition['regions'][region]['description']\n            break\nprint(name)",
+        "detail": "monitoring.custom-metrics.aws-region",
+        "documentation": {}
+    },
+    {
+        "label": "endpoint_file",
+        "kind": 5,
+        "importPath": "monitoring.custom-metrics.aws-region",
+        "description": "monitoring.custom-metrics.aws-region",
+        "peekOfCode": "endpoint_file = resource_filename('botocore', 'data/endpoints.json')\nwith open(endpoint_file, 'r') as ep_file:\n    data = json.load(ep_file)\n    for partition in data['partitions']:\n        if region in partition['regions']:\n            name = partition['regions'][region]['description']\n            break\nprint(name)",
+        "detail": "monitoring.custom-metrics.aws-region",
+        "documentation": {}
+    }
+]
