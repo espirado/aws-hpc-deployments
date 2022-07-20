@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 1Click-HPC
+Description: Icipe hpc
 
 Metadata: 
   AWS::CloudFormation::Interface:

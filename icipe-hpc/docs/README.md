@@ -1,11 +1,11 @@
 # QuickStart
-In case you do not want to use our 1Click-HPC Cloudformation template, but you still want to build your cluster with all the components and modules available in thie reporitory, you can follow the instruction below to configure your ParallelCluster configuration file. 
+In case you do not want to use this Cloudformation template, but you still want to build your cluster with all the components and modules available in thie reporitory, you can follow the instruction below to configure your ParallelCluster configuration file. 
 You can create a new cluster using your existing configuration file and just add the following parameters, everything will be installed and configured automatically.<br/>
-If this is your first approach to AWS ParallelCluster, either go back to the section above or follow all the steps of our [Workshop](https://www.hpcworkshops.com/03-hpc-aws-parallelcluster-workshop.html) and include the following configuration:
+If this is your first approach to AWS ParallelCluster, either go back to the section above or follow all the steps on AWS workshop  [Workshop](https://www.hpcworkshops.com/03-hpc-aws-parallelcluster-workshop.html) and include the following configuration:
 ```ini
 [cluster yourcluster]
 ...
-post_install = https://raw.githubusercontent.com/aws-samples/1click-hpc/main/scripts/post.install.sh
+post_install = https://github.com/mbbu/Compute-environment/blob/main/icipe-hpc/scripts/post.install.sh
 post_install_args = "05.install.ldap.server.headnode.sh 06.install.ldap.client.compute.sh 06.install.ldap.client.headnode.sh 10.install.enginframe.headnode.sh 11.install.ldap.enginframe.headnode.sh 20.install.dcv.slurm.headnode.sh 25.install.dcv-server.compute.sh 35.install.dcv.slurm.compute.sh"
 extra_json = {"post_install":{"enginframe":{"ef_admin_pass":"Put_Your_Password_HERE"}}}
 tags = {"EnginFrame" : "true"}

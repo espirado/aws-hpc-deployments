@@ -23,3 +23,5 @@ Icipe allows users to run their workloads on AWS cloud
 AWS ParallelCluster is an open source cluster management tool that makes it easy for you to deploy and manage High Performance Computing (HPC) clusters on AWS. ParallelCluster uses a simple text file to model and provision all the resources needed for your HPC applications in an automated and secure manner. It also supports multiple instance types and job submission queues, and job schedulers like AWS Batch and Slurm.
 
  [running parallel cluster](https://github.com/espirado/Icipe-computing-Research/tree/main/Aws-Cluster)
+
+ 
