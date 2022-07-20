@@ -24,4 +24,5 @@ AWS ParallelCluster is an open source cluster management tool that makes it easy
 
  [running parallel cluster](https://github.com/espirado/Icipe-computing-Research/tree/main/Aws-Cluster)
 
+ [Deploy cluster to aws](https://github.com/mbbu/Compute-environment/tree/main/icipe-hpc)
  
